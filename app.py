@@ -1,5 +1,4 @@
 from dashboard import page_one, page_two, page_three, page_four
-from const import SUGGESTED_SUBJECTS
 import json
 import os
 import re
@@ -23,6 +22,22 @@ DB_PATH = "cadence.db"
 
 if "page" not in st.session_state:
     st.session_state.page = 1
+
+SUGGESTED_SUBJECTS = [
+    "Mathematics",
+    "Physics",
+    "Chemistry",
+    "English",
+    "Biology",
+    "History",
+    "Geography",
+    "Computer Science",
+    "Economics",
+    "Literature",
+    "Statistics",
+    "Accountancy",
+]
+
 
 if "onboarding" not in st.session_state:
     st.session_state.onboarding = {
