@@ -334,5 +334,23 @@ def page_four():
     st.header("Your plan is ready!")
     st.write("Let's create your first task!")
 
+    if st.button("Procees to Cadence", use_container_width=True):
+        st.session_state.screen="dashboard"
+        st.rerun()
+
     st.subheader("Accumulated data")
     st.json(st.session_state.onboarding)
+
+def onboarding():
+
+    if st.session_state.page == 1:
+        page_one()
+
+    elif st.session_state.page == 2:
+        page_two()
+
+    elif st.session_state.page == 3:
+        page_three()
+
+    elif st.session_state.page == 4:
+        page_four()

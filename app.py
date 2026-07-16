@@ -1,4 +1,5 @@
-from pages.onboarding import page_one, page_two, page_three, page_four
+from pages.onboarding import onboarding
+from pages.dashboard import dashboard
 from const import SUGGESTED_SUBJECTS
 import json
 import os
@@ -41,27 +42,26 @@ if "onboarding" not in st.session_state:
             "extracurricular": False
         },
         "subjects": [],
-        
     }
 
-st.markdown("""
+if "screen" not in st.session_state:
+    st.session_state.screen = "onboarding"
+
+hide_sidebar = st.session_state.screen == "onboarding"
+
+st.markdown(f"""
 <style>
-.block-container {
+{"[data-testid='stSidebar'] {display: none;}" if hide_sidebar else ""}
+.block-container {{
     padding-top: 2.5rem;
     padding-left: 2rem;
     padding-right: 2rem;
-}
+}}
 </style>
 """, unsafe_allow_html=True)
 
-if st.session_state.page == 1:
-    page_one()
+if st.session_state.screen == "onboarding":
+    onboarding()
 
-elif st.session_state.page == 2:
-    page_two()
-
-elif st.session_state.page == 3:
-    page_three()
-
-elif st.session_state.page == 4:
-    page_four()
+elif st.session_state.screen == "dashboard":
+    dashboard()
