@@ -334,12 +334,10 @@ def page_four():
     st.header("Your plan is ready!")
     st.write("Let's create your first task!")
 
-    if st.button("Procees to Cadence", use_container_width=True):
-        st.session_state.screen="dashboard"
+    if st.button("Proceed to Cadence", use_container_width=True):
+        st.session_state.screen = "dashboard"
+        st.session_state.redirect_to_dashboard = True
         st.rerun()
-
-    st.subheader("Accumulated data")
-    st.json(st.session_state.onboarding)
 
 def onboarding():
 

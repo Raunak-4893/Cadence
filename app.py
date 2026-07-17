@@ -1,5 +1,6 @@
 from pages.onboarding import onboarding
 from pages.dashboard import dashboard
+from pages.timetable import timetable
 from const import SUGGESTED_SUBJECTS
 import json
 import os
@@ -47,21 +48,26 @@ if "onboarding" not in st.session_state:
 if "screen" not in st.session_state:
     st.session_state.screen = "onboarding"
 
-hide_sidebar = st.session_state.screen == "onboarding"
-
-st.markdown(f"""
+st.markdown("""
 <style>
-{"[data-testid='stSidebar'] {display: none;}" if hide_sidebar else ""}
-.block-container {{
+.block-container {
     padding-top: 2.5rem;
     padding-left: 2rem;
     padding-right: 2rem;
-}}
+}
 </style>
 """, unsafe_allow_html=True)
 
 if st.session_state.screen == "onboarding":
-    onboarding()
+    onboarding_page = st.Page(onboarding, title="Onboarding")
+    nav = st.navigation([onboarding_page], position="hidden")
 
-elif st.session_state.screen == "dashboard":
-    dashboard()
+else:
+    dashboard_page = st.Page(dashboard, title="Dashboard", url_path="dashboard")
+    timetable_page = st.Page(timetable, title="Timetable", url_path="timetable")
+    nav = st.navigation([dashboard_page, timetable_page])
+
+    if st.session_state.pop("redirect_to_dashboard", False):
+        st.switch_page(dashboard_page)
+
+nav.run()
