@@ -1,6 +1,8 @@
 import streamlit as st
 
 def dashboard():
+    left, right = st.columns([1, 4])
+
     st.header("Dashboard")
     st.write("Welcome to your dashboard!")
 

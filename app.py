@@ -58,6 +58,26 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+def render_custom_sidebar(dashboard_page, timetable_page):
+    with st.sidebar:
+        st.markdown("""
+        <style>
+        [data-testid="stSidebarNav"] { display: none; }
+        .sidebar-title {
+            font-size: 1.4rem;
+            font-weight: 700;
+            padding: 0.5rem 0 1.5rem 0;
+        }
+        </style>
+        <div class="sidebar-title">Cadence</div>
+        """, unsafe_allow_html=True)
+
+        if st.button("📊  Dashboard", use_container_width=True):
+            st.switch_page(dashboard_page)
+
+        if st.button("🗓️  Timetable", use_container_width=True):
+            st.switch_page(timetable_page)
+
 if st.session_state.screen == "onboarding":
     onboarding_page = st.Page(onboarding, title="Onboarding")
     nav = st.navigation([onboarding_page], position="hidden")
@@ -65,9 +85,11 @@ if st.session_state.screen == "onboarding":
 else:
     dashboard_page = st.Page(dashboard, title="Dashboard", url_path="dashboard")
     timetable_page = st.Page(timetable, title="Timetable", url_path="timetable")
-    nav = st.navigation([dashboard_page, timetable_page])
+    nav = st.navigation([dashboard_page, timetable_page], position="hidden")
 
     if st.session_state.pop("redirect_to_dashboard", False):
         st.switch_page(dashboard_page)
+
+    render_custom_sidebar(dashboard_page, timetable_page)
 
 nav.run()
