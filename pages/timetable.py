@@ -15,8 +15,11 @@ import streamlit as st
 import database as db
 import time_utils
 from const import SUGGESTED_SUBJECTS
-from pages._ui import (BASE_CSS, FAINT, GROTESK, INK, LINE, MUTED, PRIMARY, SANS,
-                       SERIF, SIDEBAR_CSS, active_nav_css, logo_home_button, logo_svg)
+from pages._tasks import check_week_rollover, is_carried_over
+from pages._tasks import delete_task as _remove_task_everywhere
+from pages._ui import (BASE_CSS, FAINT, GROTESK, INK, LINE, MUTED, PRIMARY,
+                       RESPONSIVE_CSS, SANS, SERIF, SIDEBAR_CSS, active_nav_css,
+                       logo_home_button, logo_svg)
 
 DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 SHORT_DAY = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
@@ -43,6 +46,10 @@ WARN_BG = "#FFF4ED"
 WARN_BD = "#FDE8D4"
 WARN_TX = "#92400E"
 WARN_BTN = "#EA580C"
+LATE = "#DC2626"
+LATE_BG = "#FEF2F2"
+LATE_BD = "#FCA5A5"
+LATE_TX = "#B91C1C"
 PRIORITY_COLOUR = {"High": "#EF4444", "Important": "#EF4444",
                    "Medium": "#F97316", "Low": "#9CA3AF"}
 SUBJECT_COLOURS = ["#8385EA", "#B391ED", "#059669", "#0EA5E9", "#D946A6",
@@ -62,8 +69,9 @@ CSS = f"""
 
 /* ---------------- top bar ---------------- */
 .cad-top {{
-    height: 56px; background: #FFFFFF; border-bottom: 1px solid {LINE};
-    display: flex; align-items: center; padding: 0 24px 0 20px; box-sizing: border-box; }}
+    min-height: 56px; background: #FFFFFF; border-bottom: 1px solid {LINE};
+    display: flex; align-items: center; flex-wrap: wrap; gap: 4px 0;
+    padding: 8px 24px 8px 20px; box-sizing: border-box; }}
 .cad-top .brand {{ display: flex; align-items: center; gap: 8px; }}
 .cad-top .brand span {{
     font-family: {SERIF}; font-weight: 600; font-size: 15px; line-height: 22.5px;
@@ -106,9 +114,12 @@ CSS = f"""
 
 /* ---------------- week grid ---------------- */
 .st-key-tt_grid {{ padding: 12px 20px 0 20px !important; gap: 0 !important; }}
+.st-key-tt_grid [data-testid="stHorizontalBlock"] {{
+    flex-wrap: nowrap !important; overflow-x: auto !important;
+    padding-bottom: 6px !important; }}
 .st-key-tt_grid [data-testid="stColumn"] {{
     background: #FFFFFF; border: 1px solid {LINE}; border-right: none;
-    min-height: 520px; padding: 0 !important; }}
+    min-height: 520px; min-width: 146px !important; padding: 0 !important; }}
 .st-key-tt_grid [data-testid="stColumn"]:last-child {{
     border-right: 1px solid {LINE}; border-radius: 0 10px 10px 0; }}
 .st-key-tt_grid [data-testid="stColumn"]:first-child {{ border-radius: 10px 0 0 10px; }}
@@ -165,6 +176,15 @@ CSS = f"""
     line-height: 16.9px; color: {INK}; }}
 .cad-tc.done .nm {{ color: {FAINT}; text-decoration: line-through; }}
 .cad-tc.done {{ background: #FBFBFE; }}
+/* carried over from a week that already ended */
+.cad-tc.late {{ background: {LATE_BG}; border-color: {LATE_BD}; }}
+.cad-tc.late:hover {{ border-color: {LATE}; }}
+.cad-tc.late .nm {{ color: {LATE_TX}; }}
+.cad-tc.late .track {{ background: #FBD5D5; }}
+.cad-tc.late .track i {{ background: {LATE}; }}
+.cad-tc .r2 .late {{
+    font-family: {GROTESK}; font-weight: 700; font-size: 10px; line-height: 15px;
+    letter-spacing: .02em; color: {LATE}; }}
 .cad-tc .track {{
     margin-top: 6px; height: 3px; border-radius: 2px; background: {BAR_BG};
     overflow: hidden; }}
@@ -185,10 +205,29 @@ CSS = f"""
     font-family: {GROTESK} !important; font-size: 13px !important;
     color: {INK} !important; }}
 [data-testid="stPopoverBody"] [data-testid="stRadio"] > div {{
-    max-height: 190px; overflow-y: auto; gap: 2px !important; }}
+    max-height: 132px; overflow-y: auto; gap: 2px !important; }}
+[data-testid="stPopoverBody"] [data-testid="stTabs"] [data-baseweb="tab-list"] {{
+    gap: 4px !important; }}
+[data-testid="stPopoverBody"] [data-testid="stTabs"] button[data-baseweb="tab"] p {{
+    font-family: {GROTESK} !important; font-size: 13px !important;
+    font-weight: 600 !important; }}
+html body [class*="st-key-tt_delwrap_"] button {{
+    background: #DC2626 !important; border: 1px solid #DC2626 !important;
+    box-shadow: none !important; }}
+html body [class*="st-key-tt_delwrap_"] button p {{
+    color: #FFFFFF !important; font-weight: 600 !important; }}
 [data-testid="stPopoverBody"] h4 {{
     font-family: {GROTESK} !important; font-size: 13px !important;
     font-weight: 700 !important; color: {INK} !important; margin: 0 0 4px 0 !important; }}
+/* ---------------- zoom / narrow viewports ---------------- */
+@media (max-width: 1000px) {{
+  .cad-top .legend {{ display: none !important; }}
+}}
+@media (max-width: 700px) {{
+  .cad-top .title {{ font-size: 14px !important; }}
+  .cad-sub {{ font-size: 12px !important; }}
+}}
+{RESPONSIVE_CSS}
 </style>
 """
 
@@ -455,12 +494,8 @@ def _move_task(task_id, target_day):
 
 
 def _delete_task(task_id):
-    db.delete_task(task_id)
-    st.session_state.tasks = [t for t in st.session_state.tasks if t["id"] != task_id]
-    for day in DAY_NAMES:
-        if task_id in st.session_state.schedule.get(day, []):
-            st.session_state.schedule[day].remove(task_id)
-    st.session_state.scheduled_task_ids.discard(task_id)
+    """Same delete the Dashboard's trash button uses, so the two can't drift."""
+    _remove_task_everywhere(task_id)
 
 
 def _subject_colour(name):
@@ -474,11 +509,18 @@ def _card_html(task):
     pri = task.get("priority") or "Medium"
     pcol = PRIORITY_COLOUR.get(pri, PRIORITY_COLOUR["Medium"])
     done = bool(task.get("completed"))
+    late = is_carried_over(task) and not done
     mins = int(task.get("duration") or 0)
     dur = f"{mins} min" if mins < 60 else (f"{mins // 60}h" if mins % 60 == 0
                                            else f"{mins / 60:.1f}h")
-    right = '<span class="done">DONE</span>' if done else '<span></span>'
-    return (f'<div class="cad-tc{" done" if done else ""}">'
+    if done:
+        right = '<span class="done">DONE</span>'
+    elif late:
+        right = '<span class="late">FROM LAST WEEK</span>'
+    else:
+        right = '<span></span>'
+    classes = "cad-tc" + (" done" if done else "") + (" late" if late else "")
+    return (f'<div class="{classes}">'
             f'<div class="r1"><span class="sub" style="color:{colour}">'
             f'{html.escape((task.get("subject") or "GENERAL").upper())}</span>'
             f'<span class="pri"><i style="background:{pcol}"></i>'
@@ -498,56 +540,62 @@ def _task_card(task, tasks_by_id):
             st.caption(f"{task['subject']} • {task['priority']} • {task['duration']} min"
                        + (" • completed" if task.get("completed") else ""))
 
-            st.markdown("**Edit task**")
-            st.caption("Name and subject only. To change duration, priority or dates, "
-                       "remove this task and add a new one from the Dashboard.")
-            new_name = st.text_input("Task name", value=task["name"], key=f"tt_name_{tid}")
+            # Tabs, not one long stack: the old menu was ~990px tall, so at any
+            # zoom above 60% "Move task" and "Remove task" fell off the bottom of
+            # the screen. Only one section is on screen at a time now.
+            tab_edit, tab_move, tab_del = st.tabs(["Edit", "Move", "Delete"])
 
-            subjects = list(st.session_state.onboarding.get("subjects", []))
-            if not subjects:
-                subjects = list(SUGGESTED_SUBJECTS)
-            if task["subject"] and task["subject"] not in subjects:
-                subjects.insert(0, task["subject"])
-            idx = subjects.index(task["subject"]) if task["subject"] in subjects else 0
-            new_subject = st.selectbox("Subject", subjects, index=idx,
-                                       key=f"tt_subject_{tid}")
-
-            if st.button("Save changes", key=f"tt_save_{tid}", use_container_width=True):
-                if not new_name.strip():
-                    st.warning("Task name can't be empty.")
-                else:
-                    task["name"] = new_name.strip()
-                    task["subject"] = new_subject
-                    db.update_task(task)
-                    st.rerun()
-
-            st.divider()
-
-            st.markdown("**Move to**")
-            fits, full = _days_with_room(task, tasks_by_id)
-            if not fits:
-                st.caption("No other day has enough free time left for this task.")
-            else:
-                free_by_day = dict(fits)
-                # A radio list, not a selectbox: the day must be picked from the
-                # visible options rather than typed in.
-                choice = st.radio(
-                    "Day", [d for d, _ in fits],
-                    format_func=lambda d: f"{d} — {free_by_day[d] / 60:.1f}h free",
-                    key=f"tt_move_{tid}", label_visibility="collapsed")
-                if st.button("Move task", key=f"tt_movebtn_{tid}",
+            with tab_edit:
+                new_name = st.text_input("Task name", value=task["name"],
+                                         key=f"tt_name_{tid}")
+                subjects = list(st.session_state.onboarding.get("subjects", []))
+                if not subjects:
+                    subjects = list(SUGGESTED_SUBJECTS)
+                if task["subject"] and task["subject"] not in subjects:
+                    subjects.insert(0, task["subject"])
+                idx = subjects.index(task["subject"]) if task["subject"] in subjects else 0
+                new_subject = st.selectbox("Subject", subjects, index=idx,
+                                           key=f"tt_subject_{tid}")
+                st.caption("Name and subject only — to change duration, priority or "
+                           "dates, delete this task and add a new one.")
+                if st.button("Save changes", key=f"tt_save_{tid}",
                              use_container_width=True):
-                    _move_task(tid, choice)
-                    st.rerun()
-            if full:
-                st.caption("Not enough room on: "
-                           + ", ".join(f"{d} ({f / 60:.1f}h)" for d, f in full))
+                    if not new_name.strip():
+                        st.warning("Task name can't be empty.")
+                    else:
+                        task["name"] = new_name.strip()
+                        task["subject"] = new_subject
+                        db.update_task(task)
+                        st.rerun()
 
-            st.divider()
-            if st.button("🗑️ Remove task", key=f"tt_del_{tid}",
-                         use_container_width=True):
-                _delete_task(tid)
-                st.rerun()
+            with tab_move:
+                fits, full = _days_with_room(task, tasks_by_id)
+                if not fits:
+                    st.caption("No other day has enough free time left for this task.")
+                else:
+                    free_by_day = dict(fits)
+                    # A radio list, not a selectbox: the day must be picked from the
+                    # visible options rather than typed in.
+                    choice = st.radio(
+                        "Day", [d for d, _ in fits],
+                        format_func=lambda d: f"{d} — {free_by_day[d] / 60:.1f}h free",
+                        key=f"tt_move_{tid}", label_visibility="collapsed")
+                    if st.button("Move task", key=f"tt_movebtn_{tid}",
+                                 use_container_width=True):
+                        _move_task(tid, choice)
+                        st.rerun()
+                if full:
+                    st.caption("Not enough room on: "
+                               + ", ".join(f"{d} ({f / 60:.1f}h)" for d, f in full))
+
+            with tab_del:
+                st.caption("This removes the task from the timetable and the "
+                           "dashboard. It can't be undone.")
+                with st.container(key=f"tt_delwrap_{tid}"):
+                    if st.button("🗑️ Remove task", key=f"tt_del_{tid}",
+                                 use_container_width=True):
+                        _delete_task(tid)
+                        st.rerun()
 
 
 # --------------------------------------------------------------------------
@@ -561,6 +609,9 @@ def timetable():
     # Tasks are created on the Dashboard; the timetable reads the same list.
     if "tasks" not in st.session_state or not st.session_state.tasks:
         st.session_state.tasks = db.get_tasks(user_id)
+
+    # A new week wipes the board; anything unfinished is the user's call.
+    check_week_rollover()
 
     _init_schedule_state()
     tasks = st.session_state.get("tasks", [])

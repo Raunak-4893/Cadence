@@ -131,6 +131,121 @@ def ensure_schedule():
         auto_schedule()
 
 
+def delete_task(task_id):
+    """Remove a task everywhere at once: database, session list and this week's
+    schedule. Shared so the Dashboard and the Timetable delete identically."""
+    db.delete_task(task_id)
+    st.session_state.tasks = [t for t in st.session_state.get("tasks", [])
+                              if t["id"] != task_id]
+    for ids in st.session_state.get("schedule", {}).values():
+        if task_id in ids:
+            ids.remove(task_id)
+    scheduled = st.session_state.get("scheduled_task_ids")
+    if scheduled is not None:
+        scheduled.discard(task_id)
+
+
+# --------------------------------------------------------------------------
+# End of week
+# --------------------------------------------------------------------------
+
+def week_start(day=None):
+    """The Monday of the week `day` falls in — the week the timetable shows."""
+    day = day or time_utils.get_today()
+    return day - timedelta(days=day.weekday())
+
+
+def is_carried_over(task):
+    """True for a task pushed here from a week that has already finished.
+
+    Carrying a task over sets its deadline to last Sunday, so this is also what
+    makes it show up red on the timetable and under Overdue on the dashboard.
+    """
+    deadline = task.get("deadline")
+    return bool(deadline and deadline < week_start())
+
+
+def stale_tasks(tasks):
+    """Everything still sitting on the board from a previous week."""
+    monday = week_start()
+    return [t for t in tasks
+            if week_start(t.get("start_date") or monday) < monday]
+
+
+def carry_tasks_over(tasks):
+    """Move tasks into this week and mark them overdue."""
+    monday = week_start()
+    for task in tasks:
+        task["start_date"] = monday
+        task["deadline"] = monday - timedelta(days=1)
+        db.update_task(task)
+
+
+@st.dialog("A new week has started")
+def week_rollover_dialog(pending, finished):
+    monday = week_start()
+    st.write(f"The board has been reset for the week of {monday:%d %B %Y}.")
+    if finished:
+        st.caption(f"{len(finished)} finished task"
+                   f"{'' if len(finished) == 1 else 's'} from last week "
+                   f"{'has' if len(finished) == 1 else 'have'} been cleared.")
+
+    st.write(f"**{len(pending)} task{'' if len(pending) == 1 else 's'} "
+             f"never got finished:**")
+    for task in pending[:10]:
+        st.markdown(f"- {task['name']} — {task.get('subject') or 'General'}, "
+                    f"{task['duration']} min")
+    if len(pending) > 10:
+        st.caption(f"…and {len(pending) - 10} more.")
+
+    st.write("Do you want to push these tasks to the next week?")
+    st.caption("Pushed tasks arrive as overdue: red on the timetable, listed "
+               "under Overdue tasks on the dashboard.")
+
+    left, right = st.columns(2)
+    with left:
+        if st.button("Yes, push them over", key="tk_roll_push",
+                     use_container_width=True, type="primary"):
+            carry_tasks_over(pending)
+            for task in finished:
+                delete_task(task["id"])
+            auto_schedule()
+            st.rerun()
+    with right:
+        if st.button("No, start with a clean slate", key="tk_roll_scrap",
+                     use_container_width=True):
+            for task in pending + finished:
+                delete_task(task["id"])
+            auto_schedule()
+            st.rerun()
+
+
+def check_week_rollover():
+    """Wipe the board when a new week begins, asking about unfinished work.
+
+    Returns True while the prompt is still waiting on an answer. Nothing extra is
+    stored to remember the answer: both choices move the tasks into this week (or
+    delete them), so there is nothing stale left to ask about a second time.
+    """
+    tasks = st.session_state.get("tasks", [])
+    stale = stale_tasks(tasks)
+    if not stale:
+        return False
+
+    pending = [t for t in stale if not t.get("completed")]
+    finished = [t for t in stale if t.get("completed")]
+
+    if not pending:
+        # Nothing to decide — last week's finished work simply clears out.
+        for task in finished:
+            delete_task(task["id"])
+        auto_schedule()
+        return False
+
+    week_rollover_dialog(pending, finished)
+    return True
+
+
 @st.dialog("Create your study task")
 def add_task_dialog():
     """The project's original Add Task dialog, unchanged in behaviour."""

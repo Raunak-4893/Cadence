@@ -166,6 +166,60 @@ div[data-testid="stSidebar"][aria-expanded="false"] {{
 """
 
 
+# ---------------------------------------------------------------- zoom / viewport
+# Browser zoom changes the size of the CSS viewport, so nothing may depend on the
+# page being a particular width or the screen being a particular height. These
+# rules are appended LAST on every screen so they win over the fixed sizes above.
+RESPONSIVE_CSS = f"""
+[data-testid="stAppViewContainer"] {{ overflow-x: hidden !important; }}
+[data-testid="stMain"] {{ overflow-y: auto !important; }}
+[data-testid="stMainBlockContainer"] {{
+    max-width: 100% !important; box-sizing: border-box !important; }}
+
+/* Pop-ups must never grow past the screen. Without this the task menu runs off
+   the bottom of the viewport at 100% zoom and "Move task" / "Remove task" can't
+   be reached at all — the whole reason the app only worked zoomed out to 60%. */
+/* `html body div…` on purpose: Streamlit injects its own 92vh cap from a
+   runtime-generated stylesheet that lands after this one, so an equally
+   specific rule would lose the tie no matter how many !importants it carries. */
+html body div[data-testid="stDialog"] div[role="dialog"] {{
+    max-height: 90vh !important; overflow-y: auto !important;
+    max-width: min(96vw, 640px) !important; box-sizing: border-box !important; }}
+/* after the dialog rule on purpose: a popover is also role="dialog", and the
+   two selectors carry the same specificity, so source order breaks the tie. */
+html body div[data-testid="stPopoverBody"] {{
+    max-height: min(68vh, 520px) !important;
+    max-width: min(94vw, 380px) !important;
+    overflow-y: auto !important; overflow-x: hidden !important;
+    box-sizing: border-box !important; }}
+/* Once the viewport is short (i.e. the user has zoomed in), a menu anchored to
+   its card can still be pushed off the top or the bottom edge. Below this height
+   it is centred like a modal instead, so it is always fully on screen. */
+@media (max-height: 820px) {{
+  html body div[data-testid="stPopoverBody"] {{
+      top: 50% !important; left: 50% !important;
+      right: auto !important; bottom: auto !important;
+      transform: translate(-50%, -50%) !important;
+      max-height: 86vh !important; }}
+}}
+
+/* Give width back to the page as the viewport shrinks, instead of squeezing the
+   content off the right edge. The sidebar narrows but never disappears. */
+@media (max-width: 1200px) {{
+  section[data-testid="stSidebar"], div[data-testid="stSidebar"],
+  [data-testid="stSidebar"] > div, [data-testid="stSidebarContent"] {{
+      width: 200px !important; min-width: 200px !important; max-width: 200px !important; }}
+}}
+@media (max-width: 900px) {{
+  section[data-testid="stSidebar"], div[data-testid="stSidebar"],
+  [data-testid="stSidebar"] > div, [data-testid="stSidebarContent"] {{
+      width: 164px !important; min-width: 164px !important; max-width: 164px !important; }}
+  [data-testid="stSidebar"] .st-key-ui_logo_home .stButton > button p {{
+      font-size: 19px !important; }}
+}}
+"""
+
+
 def active_nav_css(key):
     """Highlight one of app.py's sidebar buttons as the current page."""
     return f"""

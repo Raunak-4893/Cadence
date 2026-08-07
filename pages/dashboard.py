@@ -10,10 +10,10 @@ from datetime import date, datetime
 import streamlit as st
 
 import database as db
-from pages._tasks import (add_task_dialog, ensure_schedule, init_tasks,
-                          weighted_progress)
-from pages._ui import (BASE_CSS, GROTESK, PRIMARY, SANS, SERIF, SIDEBAR_CSS,
-                       active_nav_css, logo_home_button)
+from pages._tasks import (add_task_dialog, check_week_rollover, delete_task,
+                          ensure_schedule, init_tasks, weighted_progress)
+from pages._ui import (BASE_CSS, GROTESK, LINE, PRIMARY, RESPONSIVE_CSS, SANS,
+                       SERIF, SIDEBAR_CSS, active_nav_css, logo_home_button)
 
 # dashboard-specific tokens, taken straight from the frames
 SLATE = "#364153"
@@ -71,9 +71,10 @@ CSS = f"""
     font-size: 16px !important; line-height: 20px !important; color: #FFFFFF !important; }}
 
 /* ---------------- stat cards ---------------- */
-.cad-stats {{ display: flex; gap: 16px; margin-top: 32px; }}
+.cad-stats {{ display: flex; gap: 16px; margin-top: 32px; flex-wrap: wrap; }}
 .cad-stat {{
-    flex: 1 1 0; height: 116px; box-sizing: border-box; padding: 20px;
+    flex: 1 1 200px; min-width: 178px; min-height: 116px;
+    box-sizing: border-box; padding: 20px;
     background: #FFFFFF; border: 1px solid {CARD_BD}; border-radius: 14px;
     box-shadow: {CARD_SH}; }}
 .cad-stat b {{
@@ -126,14 +127,20 @@ CSS = f"""
 /* task rows: a bare checkbox + an HTML row, laid out as the Figma row */
 [class*="st-key-cadtask_"] {{
     flex-direction: row !important; align-items: center !important; gap: 12px !important;
-    height: 56px !important; min-height: 56px !important;
+    min-height: 56px !important; height: auto !important;
     border: 1px solid {ROW_BD} !important; border-radius: 7.11px !important;
-    padding: 0 16px !important; background: #FFFFFF !important; margin-top: 8px !important;
+    padding: 8px 16px !important; gap: 12px !important; flex-wrap: nowrap !important; background: #FFFFFF !important; margin-top: 8px !important;
     box-sizing: border-box !important; }}
 [class*="st-key-cadtask_"] > [data-testid="stElementContainer"]:first-child {{
     width: 16px !important; flex: 0 0 16px !important; }}
-[class*="st-key-cadtask_"] > [data-testid="stElementContainer"]:last-child {{
-    width: auto !important; flex: 1 1 auto !important; }}
+[class*="st-key-cadtask_"] > *:nth-child(2) {{
+    width: auto !important; flex: 1 1 auto !important; min-width: 0 !important; }}
+/* the trash sits in an stLayoutWrapper, not an stElementContainer — matching on
+   position keeps it clear of the priority label whatever Streamlit wraps it in */
+[class*="st-key-cadtask_"] > *:nth-child(3) {{
+    width: auto !important; flex: 0 0 auto !important;
+    margin-left: 20px !important; padding-left: 16px !important;
+    border-left: 1px solid #ECECF3 !important; }}
 [class*="st-key-cadtask_"] .stCheckbox {{ min-height: 16px !important; height: 16px !important; }}
 [class*="st-key-cadtask_"] .stCheckbox label > div:not([data-testid]) {{
     width: 16px !important; height: 16px !important; min-width: 16px !important;
@@ -141,7 +148,8 @@ CSS = f"""
     background: #FFFFFF !important; }}
 [class*="st-key-cadtask_"] .stCheckbox label:has(input:checked) > div:not([data-testid]) {{
     background: {PRIMARY} !important; border-color: {PRIMARY} !important; }}
-.cad-trow {{ display: flex; align-items: center; justify-content: space-between; width: 100%; }}
+.cad-trow {{ display: flex; align-items: center; justify-content: space-between;
+    width: 100%; gap: 6px 12px; flex-wrap: wrap; }}
 .cad-trow .n, .cad-vrow .n {{
     font-family: {GROTESK} !important; font-weight: 500 !important; font-size: 14px !important;
     line-height: 16px !important; color: {SLATE} !important; }}
@@ -151,9 +159,9 @@ CSS = f"""
 /* read-only row (Weekend Grind): same card, no checkbox, no interaction */
 .cad-vrow {{
     display: flex; align-items: center; justify-content: space-between;
-    height: 56px; min-height: 56px; box-sizing: border-box;
+    min-height: 56px; box-sizing: border-box; gap: 6px 12px; flex-wrap: wrap;
     border: 1px solid {ROW_BD}; border-radius: 7.11px;
-    padding: 0 16px; background: #FFFFFF; margin-top: 8px; }}
+    padding: 8px 16px; background: #FFFFFF; margin-top: 8px; }}
 .cad-meta {{ display: inline-flex; align-items: center; gap: 5.7px; }}
 .cad-meta span {{
     font-family: {GROTESK} !important; font-weight: 400 !important; font-size: 12px !important;
@@ -162,6 +170,47 @@ CSS = f"""
     font-style: normal; font-family: {GROTESK} !important; font-weight: 500 !important;
     font-size: 12px !important; line-height: 16px !important; }}
 .cad-meta .dot {{ width: 4px; height: 4px; border-radius: 50%; display: inline-block; }}
+/* ---------------- per-row delete ---------------- */
+[class*="st-key-cadtask_"] [data-testid="stPopover"] {{ width: auto !important; }}
+[data-testid="stMain"] [class*="st-key-cadtask_"] [data-testid="stPopover"] button {{
+    width: 34px !important; min-width: 34px !important; height: 34px !important;
+    min-height: 34px !important; padding: 0 !important; border-radius: 8px !important;
+    border: 1px solid {LINE} !important; background: #FFFFFF !important;
+    box-shadow: none !important; justify-content: center !important; }}
+[data-testid="stMain"] [class*="st-key-cadtask_"] [data-testid="stPopover"] button:hover {{
+    background: #FEF2F2 !important; border-color: #FCA5A5 !important; }}
+[data-testid="stMain"] [class*="st-key-cadtask_"] [data-testid="stPopover"] button p {{
+    font-size: 15px !important; line-height: 15px !important; }}
+/* drop Streamlit's popover chevron — the trash icon is the whole affordance */
+[class*="st-key-cadtask_"] [data-testid="stPopover"] button [data-testid="stIconMaterial"] {{
+    display: none !important; }}
+.cad-delhead {{
+    font-family: {GROTESK}; font-weight: 600; font-size: 14px; line-height: 20px;
+    color: {SLATE}; }}
+html body [class*="st-key-cadconfirm_"] button {{
+    background: #DC2626 !important; border: 1px solid #DC2626 !important;
+    border-radius: 8px !important; box-shadow: none !important; }}
+html body [class*="st-key-cadconfirm_"] button p {{
+    color: #FFFFFF !important; font-family: {GROTESK} !important; font-weight: 600 !important; }}
+
+/* ---------------- zoom / narrow viewports ---------------- */
+/* Below this width the 714/396 split no longer fits, so the two columns stack
+   rather than shoving the right-hand cards off the edge of the screen. */
+@media (max-width: 1000px) {{
+  [data-testid="stMain"] [data-testid="stHorizontalBlock"] {{ flex-wrap: wrap !important; }}
+  [data-testid="stMain"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {{
+      flex: 1 1 100% !important; width: 100% !important; min-width: 100% !important; }}
+}}
+/* the Add Task button is pinned to the top-right, so the greeting must keep
+   clear of it — and once the screen is small it drops into the normal flow */
+.cad-head {{ padding-right: 180px; }}
+@media (max-width: 720px) {{
+  .cad-head {{ padding-right: 0; }}
+  .st-key-cadadd {{ position: static !important; margin-top: 12px !important; }}
+  .cad-head h1 {{ font-size: 24px !important; line-height: 30px !important; }}
+  .hd {{ height: auto !important; flex-wrap: wrap; gap: 4px; }}
+}}
+{RESPONSIVE_CSS}
 </style>
 """
 
@@ -203,6 +252,21 @@ def _meta_html(task):
             f'<em style="color:{text}">{label}</em></span>')
 
 
+def _delete_control(task, prefix):
+    """A trash button on every row — deleting used to be possible only from the
+    timetable menu, which nobody found."""
+    with st.popover("🗑", help="Delete this task"):
+        st.markdown(f'<div class="cad-delhead">Delete "{html.escape(task["name"])}"?</div>',
+                    unsafe_allow_html=True)
+        st.caption("It disappears from the dashboard and the timetable. "
+                   "This can't be undone.")
+        with st.container(key=f"cadconfirm_{prefix}{task['id']}"):
+            if st.button("Yes, delete it", key=f"db_del_{prefix}{task['id']}",
+                         use_container_width=True):
+                delete_task(task["id"])
+                st.rerun()
+
+
 def _task_rows(tasks, prefix, empty_text):
     if not tasks:
         st.markdown(f'<div class="cad-empty">{html.escape(empty_text)}</div>',
@@ -215,6 +279,7 @@ def _task_rows(tasks, prefix, empty_text):
             cls = "cad-trow done" if t["completed"] else "cad-trow"
             st.markdown(f'<div class="{cls}"><span class="n">{html.escape(t["name"])}</span>'
                         f'{_meta_html(t)}</div>', unsafe_allow_html=True)
+            _delete_control(t, prefix)
             if new != t["completed"]:
                 t["completed"] = new
                 db.update_task(t)
@@ -242,6 +307,9 @@ def dashboard():
 
     user = st.session_state.user
     tasks = init_tasks() if user else []
+    # A new week wipes the board; anything unfinished is the user's call.
+    check_week_rollover()
+    tasks = st.session_state.get("tasks", [])
     ensure_schedule()
     today = date.today()
 
